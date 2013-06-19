@@ -113,14 +113,14 @@ fn borrowck_fn(fk: &visit::fn_kind,
                id: ast::node_id,
                (this, v): (@BorrowckCtxt,
                            visit::vt<@BorrowckCtxt>)) {
-    match fk {
-        &visit::fk_anon(*) |
-        &visit::fk_fn_block(*) => {
+    match *fk {
+        visit::fk_anon(*) |
+        visit::fk_fn_block(*) => {
             // Closures are checked as part of their containing fn item.
         }
 
-        &visit::fk_item_fn(*) |
-        &visit::fk_method(*) => {
+        visit::fk_item_fn(*) |
+        visit::fk_method(*) => {
             debug!("borrowck_fn(id=%?)", id);
 
             // Check the body of fn items.
@@ -813,16 +813,16 @@ impl Repr for Restriction {
 
 impl Repr for LoanPath {
     fn repr(&self, tcx: ty::ctxt) -> ~str {
-        match self {
-            &LpVar(id) => {
+        match *self {
+            LpVar(id) => {
                 fmt!("$(%?)", id)
             }
 
-            &LpExtend(lp, _, LpDeref) => {
+            LpExtend(lp, _, LpDeref) => {
                 fmt!("%s.*", lp.repr(tcx))
             }
 
-            &LpExtend(lp, _, LpInterior(ref interior)) => {
+            LpExtend(lp, _, LpInterior(ref interior)) => {
                 fmt!("%s.%s", lp.repr(tcx), interior.repr(tcx))
             }
         }

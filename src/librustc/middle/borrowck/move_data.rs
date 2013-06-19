@@ -79,8 +79,7 @@ static InvalidMovePathIndex: MovePathIndex =
 #[deriving(Eq)]
 pub struct MoveIndex(uint);
 
-static InvalidMoveIndex: MoveIndex =
-    MoveIndex(uint::max_value);
+static InvalidMoveIndex: MoveIndex = MoveIndex(uint::max_value);
 
 pub struct MovePath {
     /// Loan path corresponding to this move path

@@ -113,15 +113,15 @@ fn gather_loans_in_fn(fk: &visit::fn_kind,
                       id: ast::node_id,
                       (this, v): (@mut GatherLoanCtxt,
                                   visit::vt<@mut GatherLoanCtxt>)) {
-    match fk {
+    match *fk {
         // Do not visit items here, the outer loop in borrowck/mod
         // will visit them for us in turn.
-        &visit::fk_item_fn(*) | &visit::fk_method(*) => {
+        visit::fk_item_fn(*) | visit::fk_method(*) => {
             return;
         }
 
         // Visit closures as part of the containing item.
-        &visit::fk_anon(*) | &visit::fk_fn_block(*) => {
+        visit::fk_anon(*) | visit::fk_fn_block(*) => {
             this.push_repeating_id(body.node.id);
             visit::visit_fn(fk, decl, body, sp, id, (this, v));
             this.pop_repeating_id(body.node.id);

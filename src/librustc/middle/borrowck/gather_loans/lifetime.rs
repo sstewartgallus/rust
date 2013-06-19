@@ -179,10 +179,7 @@ impl GuaranteeLifetimeContext {
         //! it is in a non-user-accessible temporary, or (2) an immutable
         //! lvalue.
 
-        cmt.mutbl.is_immutable() || match cmt.guarantor().cat {
-            mc::cat_rvalue => true,
-            _ => false
-        }
+        cmt.mutbl.is_immutable() || cmt.guarantor().cat == mc::cat_rvalue
     }
 
     fn check_root(&self,
@@ -238,11 +235,9 @@ impl GuaranteeLifetimeContext {
         // borrows from happening later.
         let opt_dyna = match ptr_mutbl {
             m_imm | m_const => None,
-            m_mutbl => {
-                match self.loan_mutbl {
-                    m_mutbl => Some(DynaMut),
-                    m_imm | m_const => Some(DynaImm)
-                }
+            m_mutbl => match self.loan_mutbl {
+                m_mutbl => Some(DynaMut),
+                m_imm | m_const => Some(DynaImm)
             }
         };
 

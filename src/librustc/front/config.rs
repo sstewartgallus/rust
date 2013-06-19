@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012, 2013 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -24,7 +24,7 @@ struct Context {
 // any items that do not belong in the current configuration
 pub fn strip_unconfigured_items(crate: @ast::crate) -> @ast::crate {
     do strip_items(crate) |attrs| {
-        in_cfg(/*bad*/copy crate.node.config, attrs)
+        in_cfg(crate.node.config.clone(), attrs)
     }
 }
 
@@ -44,8 +44,7 @@ pub fn strip_items(crate: @ast::crate, in_cfg: in_cfg_pred)
           .. *fold::default_ast_fold()};
 
     let fold = fold::make_fold(precursor);
-    let res = @fold.fold_crate(&*crate);
-    return res;
+    return @fold.fold_crate(crate);
 }
 
 fn filter_item(cx: @Context, item: @ast::item) ->
@@ -63,10 +62,8 @@ fn filter_view_item(cx: @Context, view_item: @ast::view_item
 }
 
 fn fold_mod(cx: @Context, m: &ast::_mod, fld: @fold::ast_fold) -> ast::_mod {
-    let filtered_items =
-        m.items.filter_mapped(|a| filter_item(cx, *a));
-    let filtered_view_items =
-        m.view_items.filter_mapped(|a| filter_view_item(cx, *a));
+    let filtered_items = m.items.filter_mapped(|a| filter_item(cx, *a));
+    let filtered_view_items = m.view_items.filter_mapped(|a| filter_view_item(cx, *a));
     ast::_mod {
         view_items: filtered_view_items.map(|x| fld.fold_view_item(*x)),
         items: vec::filter_map(filtered_items, |x| fld.fold_item(x))
@@ -85,10 +82,8 @@ fn fold_foreign_mod(
     nm: &ast::foreign_mod,
     fld: @fold::ast_fold
 ) -> ast::foreign_mod {
-    let filtered_items =
-        nm.items.filter_mapped(|a| filter_foreign_item(cx, *a));
-    let filtered_view_items =
-        nm.view_items.filter_mapped(|a| filter_view_item(cx, *a));
+    let filtered_items = nm.items.filter_mapped(|a| filter_foreign_item(cx, *a));
+    let filtered_view_items = nm.view_items.filter_mapped(|a| filter_view_item(cx, *a));
     ast::foreign_mod {
         sort: nm.sort,
         abis: nm.abis,
@@ -114,20 +109,13 @@ fn fold_item_underscore(cx: @Context, item: &ast::item_,
     fold::noop_fold_item_underscore(&item, fld)
 }
 
-fn filter_stmt(cx: @Context, stmt: @ast::stmt) ->
-   Option<@ast::stmt> {
+fn filter_stmt(cx: @Context, stmt: @ast::stmt) -> Option<@ast::stmt> {
     match stmt.node {
-      ast::stmt_decl(decl, _) => {
-        match decl.node {
-          ast::decl_item(item) => {
-            if item_in_cfg(cx, item) {
-                option::Some(stmt)
-            } else { option::None }
-          }
-          _ => option::Some(stmt)
-        }
-      }
-      _ => option::Some(stmt)
+        ast::stmt_decl(decl, _) => match decl.node {
+            ast::decl_item(item) if !item_in_cfg(cx, item) => option::None,
+            _ => option::Some(stmt)
+        },
+        _ => option::Some(stmt)
     }
 }
 
@@ -159,19 +147,19 @@ fn fold_block(
 }
 
 fn item_in_cfg(cx: @Context, item: @ast::item) -> bool {
-    return (cx.in_cfg)(/*bad*/copy item.attrs);
+    (cx.in_cfg)(/*bad*/copy item.attrs)
 }
 
 fn foreign_item_in_cfg(cx: @Context, item: @ast::foreign_item) -> bool {
-    return (cx.in_cfg)(/*bad*/copy item.attrs);
+    (cx.in_cfg)(/*bad*/copy item.attrs)
 }
 
 fn view_item_in_cfg(cx: @Context, item: @ast::view_item) -> bool {
-    return (cx.in_cfg)(/*bad*/copy item.attrs);
+    (cx.in_cfg)(/*bad*/copy item.attrs)
 }
 
 fn method_in_cfg(cx: @Context, meth: @ast::method) -> bool {
-    return (cx.in_cfg)(/*bad*/copy meth.attrs);
+    (cx.in_cfg)(/*bad*/copy meth.attrs)
 }
 
 fn trait_method_in_cfg(cx: @Context, meth: &ast::trait_method) -> bool {

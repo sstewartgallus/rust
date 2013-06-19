@@ -1,4 +1,4 @@
-// Copyright 2012 The Rust Project Developers. See the COPYRIGHT
+// Copyright 2012, 2013 The Rust Project Developers. See the COPYRIGHT
 // file at the top-level directory of this distribution and at
 // http://rust-lang.org/COPYRIGHT.
 //
@@ -21,16 +21,13 @@ pub fn inject_intrinsic(sess: Session, crate: @ast::crate) -> @ast::crate {
 
     let item = parse::parse_item_from_source_str(@"<intrinsic>",
                                                  intrinsic_module,
-                                                 /*bad*/copy sess.opts.cfg,
+                                                 sess.opts.cfg.clone(),
                                                  ~[],
                                                  sess.parse_sess);
-    let item =
-        match item {
-          Some(i) => i,
-          None => {
-            sess.fatal("no item found in intrinsic module");
-          }
-        };
+    let item = match item {
+        Some(i) => i,
+        None => sess.fatal("no item found in intrinsic module")
+    };
 
     let items = vec::append(~[item], crate.node.module.items);
 

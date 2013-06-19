@@ -119,10 +119,8 @@ impl<'self> CheckLoanCtxt<'self> {
 
         for self.each_in_scope_loan(scope_id) |loan| {
             for loan.restrictions.each |restr| {
-                if restr.loan_path == loan_path {
-                    if !op(loan, restr) {
-                        return false;
-                    }
+                if restr.loan_path == loan_path && !op(loan, restr) {
+                    return false;
                 }
             }
         }
@@ -225,7 +223,6 @@ impl<'self> CheckLoanCtxt<'self> {
                         old_loan.span,
                         fmt!("second borrow of `%s` as mutable occurs here",
                              self.bccx.loan_path_to_str(new_loan.loan_path)));
-                    return false;
                 }
 
                 _ => {
@@ -240,9 +237,9 @@ impl<'self> CheckLoanCtxt<'self> {
                         old_loan.span,
                         fmt!("second borrow of `%s` occurs here",
                              self.bccx.loan_path_to_str(new_loan.loan_path)));
-                    return false;
                 }
             }
+            return false;
         }
 
         true

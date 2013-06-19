@@ -7,7 +7,8 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-
+use core::option;
+use core::cast;
 
 // EBML enum definitions and utils shared by the encoder and decoder
 
@@ -135,6 +136,16 @@ pub enum astencode_tag { // Reserves 0x50 -- 0x6f
     tag_table_adjustments = 0x62,
     tag_table_moves_map = 0x63,
     tag_table_capture_map = 0x64
+}
+static first_astencode_tag : uint = tag_ast as uint;
+static last_astencode_tag : uint = tag_table_capture_map as uint;
+impl astencode_tag {
+    pub fn from_uint(value : uint) -> option::Option<astencode_tag> {
+        let is_a_tag = first_astencode_tag <= value && value <= last_astencode_tag;
+        if is_a_tag { option::None } else {
+            option::Some(unsafe { cast::transmute(value as int) })
+        }
+    }
 }
 
 pub static tag_item_trait_method_sort: uint = 0x70;

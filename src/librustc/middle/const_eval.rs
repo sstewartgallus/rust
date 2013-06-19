@@ -421,56 +421,17 @@ pub fn lit_to_const(lit: @lit) -> const_val {
 }
 
 pub fn compare_const_vals(a: &const_val, b: &const_val) -> Option<int> {
-  match (a, b) {
-    (&const_int(a), &const_int(b)) => {
-        if a == b {
-            Some(0)
-        } else if a < b {
-            Some(-1)
-        } else {
-            Some(1)
-        }
+    fn compare_vals<T : Eq + Ord>(a: T, b: T) -> Option<int> {
+        Some(if a == b { 0 } else if a < b { -1 } else { 1 })
     }
-    (&const_uint(a), &const_uint(b)) => {
-        if a == b {
-            Some(0)
-        } else if a < b {
-            Some(-1)
-        } else {
-            Some(1)
-        }
+    match (a, b) {
+        (&const_int(a), &const_int(b)) => compare_vals(a, b),
+        (&const_uint(a), &const_uint(b)) => compare_vals(a, b),
+        (&const_float(a), &const_float(b)) => compare_vals(a, b),
+        (&const_str(a), &const_str(b)) => compare_vals(a, b),
+        (&const_bool(a), &const_bool(b)) => compare_vals(a, b),
+        _ => None
     }
-    (&const_float(a), &const_float(b)) => {
-        if a == b {
-            Some(0)
-        } else if a < b {
-            Some(-1)
-        } else {
-            Some(1)
-        }
-    }
-    (&const_str(ref a), &const_str(ref b)) => {
-        if (*a) == (*b) {
-            Some(0)
-        } else if (*a) < (*b) {
-            Some(-1)
-        } else {
-            Some(1)
-        }
-    }
-    (&const_bool(a), &const_bool(b)) => {
-        if a == b {
-            Some(0)
-        } else if a < b {
-            Some(-1)
-        } else {
-            Some(1)
-        }
-    }
-    _ => {
-        None
-    }
-  }
 }
 
 pub fn compare_lit_exprs(tcx: middle::ty::ctxt, a: @expr, b: @expr) -> Option<int> {
@@ -478,15 +439,9 @@ pub fn compare_lit_exprs(tcx: middle::ty::ctxt, a: @expr, b: @expr) -> Option<in
 }
 
 pub fn lit_expr_eq(tcx: middle::ty::ctxt, a: @expr, b: @expr) -> Option<bool> {
-    match compare_lit_exprs(tcx, a, b) {
-        Some(val) => Some(val == 0),
-        None =>  None,
-    }
+    compare_lit_exprs(tcx, a, b).map(|&val| val == 0)
 }
 
 pub fn lit_eq(a: @lit, b: @lit) -> Option<bool> {
-    match compare_const_vals(&lit_to_const(a), &lit_to_const(b)) {
-        Some(val) => Some(val == 0),
-        None =>  None,
-    }
+    compare_const_vals(&lit_to_const(a), &lit_to_const(b)).map(|&val| val == 0)
 }
