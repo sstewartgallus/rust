@@ -48,7 +48,7 @@ use core::cast;
 use core::unstable::sync::UnsafeAtomicRcBox;
 use core::task;
 use core::borrow;
-use core::util;
+use core::cell;
 
 /// As sync::condvar, a mechanism for unlock-and-descheduling and signaling.
 pub struct Condvar<'self> {
@@ -333,24 +333,19 @@ impl<T:Const + Owned> RWARC<T> {
         }
     }
 
-    /// As write(), but unpoisons poisoned ARCs.
+    /**
+     * Unpoisons a poisoned ARC by setting it to a new value that does not
+     * depend on the one currently in the ARC.
+     */
     #[inline]
-    pub fn unpoison<U>(&self, blk: &fn() -> (T, U)) -> U {
+    pub fn unpoison(&self, newvalue: T) {
         unsafe {
             let state = self.x.get();
+
+            let cell = cell::Cell::new(newvalue);
             do (*borrow_rwlock(state)).write {
-                let _z = PoisonOnFail(&mut (*state).failed);
-
-                let mut (writevalue, result) = blk();
-
-                util::swap(&mut (*state).data, &mut writevalue);
-                if (*state).failed {
-                    // Might be uninitialized so is unsafe to destroy
-                    cast::forget(writevalue)
-                }
-                (*state).failed = false;
-
-                result
+                (*state).data = cell.take();
+                (*state).failed = false
             }
         }
     }
@@ -764,13 +759,13 @@ mod tests {
 
         // Poison the arc
         let arc_clone = arc.clone();
-        do task::spawn_unlinked {
+        let _ : Result<(), ()> = do task::try {
             do arc_clone.write |_| {
                 fail!()
             }
-        }
+        };
 
-        do arc.unpoison { (0, ()) }
+        arc.unpoison(0);
 
         do arc.read |_| {
             // Should succeed at reading the now unpoisoned value
