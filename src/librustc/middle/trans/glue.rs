@@ -284,22 +284,15 @@ pub fn call_tydesc_glue_full(bcx: @mut Block,
         ccx.sess.opts.debugging_opts & session::no_landing_pads != 0;
     if bcx.unreachable && !no_lpads { return; }
 
-    let static_glue_fn = match static_ti {
-      None => None,
-      Some(sti) => {
+    let static_glue_fn = do static_ti.chain |sti| {
         lazily_emit_tydesc_glue(ccx, field, sti);
-        if field == abi::tydesc_field_take_glue {
-            sti.take_glue
-        } else if field == abi::tydesc_field_drop_glue {
-            sti.drop_glue
-        } else if field == abi::tydesc_field_free_glue {
-            sti.free_glue
-        } else if field == abi::tydesc_field_visit_glue {
-            sti.visit_glue
-        } else {
-            None
+        match field {
+            abi::tydesc_field_take_glue => sti.take_glue,
+            abi::tydesc_field_drop_glue => sti.drop_glue,
+            abi::tydesc_field_free_glue => sti.free_glue,
+            abi::tydesc_field_visit_glue => sti.visit_glue,
+            _ => None
         }
-      }
     };
 
     // When static type info is available, avoid casting parameter unless the

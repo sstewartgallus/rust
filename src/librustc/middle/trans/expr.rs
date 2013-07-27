@@ -205,25 +205,25 @@ pub fn trans_to_datum(bcx: @mut Block, expr: @ast::expr) -> DatumBlock {
             }
 
             datum = match adj.autoref {
-                None => {
-                    datum
-                }
-                Some(AutoUnsafe(*)) | // region + unsafe ptrs have same repr
-                Some(AutoPtr(*)) => {
-                    unpack_datum!(bcx, auto_ref(bcx, datum))
-                }
-                Some(AutoBorrowVec(*)) => {
-                    unpack_datum!(bcx, auto_slice(bcx, adj.autoderefs,
-                                                  expr, datum))
-                }
-                Some(AutoBorrowVecRef(*)) => {
-                    unpack_datum!(bcx, auto_slice_and_ref(bcx, adj.autoderefs,
-                                                          expr, datum))
-                }
-                Some(AutoBorrowFn(*)) => {
-                    let adjusted_ty = ty::adjust_ty(bcx.tcx(), expr.span,
-                                                    datum.ty, Some(adjustment));
-                    unpack_datum!(bcx, auto_borrow_fn(bcx, adjusted_ty, datum))
+                None => datum,  // If none no update
+                Some(value) => match value {
+                    // region + unsafe ptrs have same repr
+                    AutoUnsafe(*) | AutoPtr(*) => {
+                        unpack_datum!(bcx, auto_ref(bcx, datum))
+                    }
+                    AutoBorrowVec(*) => {
+                        unpack_datum!(bcx, auto_slice(bcx, adj.autoderefs,
+                                                      expr, datum))
+                    }
+                    AutoBorrowVecRef(*) => {
+                        unpack_datum!(bcx, auto_slice_and_ref(bcx, adj.autoderefs,
+                                                              expr, datum))
+                    }
+                    AutoBorrowFn(*) => {
+                        let adjusted_ty = ty::adjust_ty(bcx.tcx(), expr.span,
+                                                        datum.ty, Some(adjustment));
+                        unpack_datum!(bcx, auto_borrow_fn(bcx, adjusted_ty, datum))
+                    }
                 }
             };
         }

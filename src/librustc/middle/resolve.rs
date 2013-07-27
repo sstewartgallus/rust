@@ -566,25 +566,15 @@ impl NameBindings {
 
     /// Records a type definition.
     pub fn define_type(@mut self, privacy: Privacy, def: def, sp: span) {
+        let module_def = self.type_def.chain(|type_def| type_def.module_def);
+
         // Merges the type with the existing type def or creates a new one.
-        match self.type_def {
-            None => {
-                self.type_def = Some(TypeNsDef {
-                    privacy: privacy,
-                    module_def: None,
-                    type_def: Some(def),
-                    type_span: Some(sp)
-                });
-            }
-            Some(type_def) => {
-                self.type_def = Some(TypeNsDef {
-                    privacy: privacy,
-                    type_def: Some(def),
-                    type_span: Some(sp),
-                    module_def: type_def.module_def
-                });
-            }
-        }
+        self.type_def = Some(TypeNsDef {
+            privacy: privacy,
+            type_def: Some(def),
+            type_span: Some(sp),
+            module_def: module_def
+        });
     }
 
     /// Records a value definition.
@@ -594,10 +584,7 @@ impl NameBindings {
 
     /// Returns the module node if applicable.
     pub fn get_module_if_available(&self) -> Option<@mut Module> {
-        match self.type_def {
-            Some(ref type_def) => (*type_def).module_def,
-            None => None
-        }
+        self.type_def.chain(|type_def| type_def.module_def)
     }
 
     /**
@@ -605,19 +592,14 @@ impl NameBindings {
      * definition.
      */
     pub fn get_module(@mut self) -> @mut Module {
-        match self.get_module_if_available() {
-            None => {
-                fail!("get_module called on a node with no module \
-                       definition!")
-            }
-            Some(module_def) => module_def
-        }
+        let error = "get_module called on a node with no module definition!";
+        self.get_module_if_available().expect(error)
     }
 
     pub fn defined_in_namespace(&self, namespace: Namespace) -> bool {
         match namespace {
-            TypeNS   => return self.type_def.is_some(),
-            ValueNS  => return self.value_def.is_some()
+            TypeNS => self.type_def.is_some(),
+            ValueNS => self.value_def.is_some()
         }
     }
 
@@ -636,31 +618,13 @@ impl NameBindings {
 
     pub fn def_for_namespace(&self, namespace: Namespace) -> Option<def> {
         match namespace {
-            TypeNS => {
-                match self.type_def {
-                    None => None,
-                    Some(ref type_def) => {
-                        match (*type_def).type_def {
-                            Some(type_def) => Some(type_def),
-                            None => {
-                                match type_def.module_def {
-                                    Some(module) => {
-                                        match module.def_id {
-                                            Some(did) => Some(def_mod(did)),
-                                            None => None,
-                                        }
-                                    }
-                                    None => None,
-                                }
-                            }
-                        }
+            ValueNS => self.value_def.map(|value_def| value_def.def),
+            TypeNS => do self.type_def.chain |type_def| {
+                match type_def.type_def {
+                    Some(type_def) => Some(type_def),
+                    None => do type_def.module_def.chain |module| {
+                        module.def_id.map(|&did| def_mod(did))
                     }
-                }
-            }
-            ValueNS => {
-                match self.value_def {
-                    None => None,
-                    Some(value_def) => Some(value_def.def)
                 }
             }
         }
@@ -669,39 +633,19 @@ impl NameBindings {
     pub fn privacy_for_namespace(&self, namespace: Namespace)
                                  -> Option<Privacy> {
         match namespace {
-            TypeNS => {
-                match self.type_def {
-                    None => None,
-                    Some(ref type_def) => Some((*type_def).privacy)
-                }
-            }
-            ValueNS => {
-                match self.value_def {
-                    None => None,
-                    Some(value_def) => Some(value_def.privacy)
-                }
-            }
+            TypeNS => self.type_def.map(|type_def| type_def.privacy),
+            ValueNS => self.value_def.map(|value_def| value_def.privacy)
         }
     }
 
     pub fn span_for_namespace(&self, namespace: Namespace) -> Option<span> {
-        if self.defined_in_namespace(namespace) {
-            match namespace {
-                TypeNS  => {
-                    match self.type_def {
-                        None => None,
-                        Some(type_def) => type_def.type_span
-                    }
-                }
-                ValueNS => {
-                    match self.value_def {
-                        None => None,
-                        Some(value_def) => value_def.value_span
-                    }
-                }
-            }
-        } else {
-            None
+        if !self.defined_in_namespace(namespace) {
+            return None
+        }
+
+        match namespace {
+            TypeNS => self.type_def.chain(|type_def| type_def.type_span),
+            ValueNS => self.value_def.chain(|value_def| value_def.value_span)
         }
     }
 }
@@ -928,9 +872,7 @@ impl Resolver {
                                   reduced_graph_parent: ReducedGraphParent)
                                   -> @mut Module {
         match reduced_graph_parent {
-            ModuleReducedGraphParent(module_) => {
-                return module_;
-            }
+            ModuleReducedGraphParent(module_) => module_
         }
     }
 
@@ -955,12 +897,9 @@ impl Resolver {
         // child name directly. Otherwise, we create or reuse an anonymous
         // module and add the child to that.
 
-        let module_;
-        match reduced_graph_parent {
-            ModuleReducedGraphParent(parent_module) => {
-                module_ = parent_module;
-            }
-        }
+        let module_ = match reduced_graph_parent {
+            ModuleReducedGraphParent(parent_module) => parent_module
+        };
 
         // Add or reuse the child.
         let new_parent = ModuleReducedGraphParent(module_);
@@ -1084,9 +1023,7 @@ impl Resolver {
     pub fn get_parent_link(@mut self, parent: ReducedGraphParent, name: ident)
                            -> ParentLink {
         match parent {
-            ModuleReducedGraphParent(module_) => {
-                return ModuleParentLink(module_, name);
-            }
+            ModuleReducedGraphParent(module_) => ModuleParentLink(module_, name)
         }
     }
 
@@ -1588,7 +1525,7 @@ impl Resolver {
                 module_def.def_id = Some(def_id);
                 modules.insert(def_id, module_def);
               }
-              Some(_) | None => {
+              _ => {
                 debug!("(building reduced graph for \
                         external crate) building module \
                         %s", final_ident);
@@ -1842,7 +1779,7 @@ impl Resolver {
                                             // necessary.
                                             type_module.kind = ImplModuleKind;
                                         }
-                                        Some(_) | None => {
+                                        _ => {
                                             let parent_link =
                                                 self.get_parent_link(
                                                     new_parent, final_ident);
@@ -1883,7 +1820,7 @@ impl Resolver {
                                 }
 
                                 // Otherwise, do nothing.
-                                Some(_) | None => {}
+                                _ => {}
                             }
                         }
                     }
@@ -2890,25 +2827,16 @@ impl Resolver {
         match resolve_result {
             Success(target) => {
                 let bindings = &mut *target.bindings;
-                match bindings.type_def {
-                    Some(ref type_def) => {
-                        match (*type_def).module_def {
-                            None => {
-                                error!("!!! (resolving module in lexical \
-                                        scope) module wasn't actually a \
-                                        module!");
-                                return Failed;
-                            }
-                            Some(module_def) => {
-                                return Success(module_def);
-                            }
-                        }
-                    }
+                let maybe_module_def = do bindings.type_def.chain |type_def| {
+                    type_def.module_def
+                };
+                match maybe_module_def {
                     None => {
                         error!("!!! (resolving module in lexical scope) module
                                 wasn't actually a module!");
                         return Failed;
                     }
+                    Some(module_def) => return Success(module_def)
                 }
             }
             Indeterminate => {
@@ -3026,7 +2954,7 @@ impl Resolver {
                 debug!("(resolving name in module) found node as child");
                 return Success(Target(module_, *name_bindings));
             }
-            Some(_) | None => {
+            _ => {
                 // Continue.
             }
         }
@@ -4128,20 +4056,16 @@ impl Resolver {
 
                 match result_def {
                     None => {
-                        match self.resolve_path(ty.id, path, TypeNS, true, visitor) {
-                            Some(def) => {
-                                debug!("(resolving type) resolved `%s` to \
-                                        type %?",
-                                       self.session.str_of(
-                                            *path.idents.last()),
-                                       def);
-                                result_def = Some(def);
-                            }
-                            None => {
-                                result_def = None;
-                            }
+                        result_def = do self.resolve_path(
+                            ty.id, path, TypeNS, true,
+                            visitor
+                        ).map |&def| {
+                            debug!("(resolving type) resolved `%s` to type %?",
+                                   self.session.str_of(*path.idents.last()),
+                                   def);
+                            def
                         }
-                    }
+                    },
                     Some(_) => {
                         // Continue.
                     }
@@ -4428,42 +4352,30 @@ impl Resolver {
         }
     }
 
-    pub fn resolve_bare_identifier_pattern(@mut self, name: ident)
-                                           ->
-                                           BareIdentifierPatternResolution {
-        match self.resolve_item_in_lexical_scope(self.current_module,
-                                                 name,
-                                                 ValueNS,
-                                                 SearchThroughModules) {
-            Success(target) => {
-                match target.bindings.value_def {
-                    None => {
-                        fail!("resolved name in the value namespace to a \
-                              set of name bindings with no def?!");
-                    }
-                    Some(def) => {
-                        match def.def {
-                            def @ def_variant(*) | def @ def_struct(*) => {
-                                return FoundStructOrEnumVariant(def);
-                            }
-                            def @ def_static(_, false) => {
-                                return FoundConst(def);
-                            }
-                            _ => {
-                                return BareIdentifierPatternUnresolved;
-                            }
-                        }
-                    }
-                }
-            }
+    pub fn resolve_bare_identifier_pattern(
+        @mut self, name: ident
+    ) -> BareIdentifierPatternResolution {
+        let target = match self.resolve_item_in_lexical_scope(
+            self.current_module,
+            name,
+            ValueNS,
+            SearchThroughModules
+        ) {
+            Indeterminate => fail!("unexpected indeterminate result"),
+            Failed => return BareIdentifierPatternUnresolved,
+            Success(target) => target
+        };
 
-            Indeterminate => {
-                fail!("unexpected indeterminate result");
-            }
+        let def = target.bindings.value_def.expect(
+            "resolved name in the value namespace to a \
+             set of name bindings with no def?!");
 
-            Failed => {
-                return BareIdentifierPatternUnresolved;
+        match def.def {
+            def @ def_variant(*) | def @ def_struct(*) => {
+                FoundStructOrEnumVariant(def)
             }
+            def @ def_static(_, false) => FoundConst(def),
+            _ => BareIdentifierPatternUnresolved
         }
     }
 
@@ -4584,25 +4496,20 @@ impl Resolver {
                     None => {}
                 }
             }
-            Some(_) | None => {}    // Continue.
+            _ => {}    // Continue.
         }
 
         // Finally, search through external children.
-        if namespace == TypeNS {
-            match containing_module.external_module_children.find(&name) {
-                None => {}
-                Some(module) => {
-                    match module.def_id {
-                        None => {} // Continue.
-                        Some(def_id) => {
-                            return ChildNameDefinition(def_mod(def_id));
-                        }
-                    }
-                }
+        let maybe_name_definition = if namespace != TypeNS { None } else {
+            do containing_module.external_module_children.find(&name).chain |module| {
+                module.def_id.map(|&def_id| ChildNameDefinition(def_mod(def_id)))
             }
-        }
+        };
 
-        return NoNameDefinition;
+        match maybe_name_definition {
+            None => NoNameDefinition,
+            Some(name_definition) => name_definition
+        }
     }
 
     pub fn intern_module_part_of_path(@mut self, path: &Path) -> ~[ident] {

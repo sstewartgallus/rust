@@ -270,10 +270,12 @@ fn generic_fields_of(cx: &mut CrateContext, r: &Repr, sizing: bool) -> ~[Type] {
 }
 
 fn struct_llfields(cx: &mut CrateContext, st: &Struct, sizing: bool) -> ~[Type] {
-    if sizing {
-        st.fields.map(|&ty| type_of::sizing_type_of(cx, ty))
-    } else {
-        st.fields.map(|&ty| type_of::type_of(cx, ty))
+    do st.fields.map |&ty| {
+        if sizing {
+            type_of::sizing_type_of(cx, ty)
+        } else {
+            type_of::type_of(cx, ty)
+        }
     }
 }
 

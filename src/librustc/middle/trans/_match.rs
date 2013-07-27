@@ -200,41 +200,28 @@ pub enum Opt {
 }
 
 pub fn opt_eq(tcx: ty::ctxt, a: &Opt, b: &Opt) -> bool {
+    fn get_expr_from_lit(tcx: ty::ctxt, literal: Lit) -> @ast::expr {
+        match literal {
+            ExprLit(existing_a_expr) => existing_a_expr,
+            ConstLit(a_const) => {
+                let e = const_eval::lookup_const_by_id(tcx, a_const);
+                e.get()
+            },
+            _ => fail!(
+                "UnitLikeStructLit should have been handled above")
+        }
+    }
+
     match (a, b) {
         (&lit(a), &lit(b)) => {
             match (a, b) {
                 (UnitLikeStructLit(a), UnitLikeStructLit(b)) => a == b,
                 _ => {
-                    let a_expr;
-                    match a {
-                        ExprLit(existing_a_expr) => a_expr = existing_a_expr,
-                            ConstLit(a_const) => {
-                                let e = const_eval::lookup_const_by_id(tcx, a_const);
-                                a_expr = e.get();
-                            }
-                        UnitLikeStructLit(_) => {
-                            fail!("UnitLikeStructLit should have been handled \
-                                    above")
-                        }
-                    }
+                    let a_expr = get_expr_from_lit(tcx, a);
+                    let b_expr = get_expr_from_lit(tcx, b);
 
-                    let b_expr;
-                    match b {
-                        ExprLit(existing_b_expr) => b_expr = existing_b_expr,
-                            ConstLit(b_const) => {
-                                let e = const_eval::lookup_const_by_id(tcx, b_const);
-                                b_expr = e.get();
-                            }
-                        UnitLikeStructLit(_) => {
-                            fail!("UnitLikeStructLit should have been handled \
-                                    above")
-                        }
-                    }
-
-                    match const_eval::compare_lit_exprs(tcx, a_expr, b_expr) {
-                        Some(val1) => val1 == 0,
-                        None => fail!("compare_list_exprs: type mismatch"),
-                    }
+                    let maybe_val = const_eval::compare_lit_exprs(tcx, a_expr, b_expr);
+                    maybe_val.expect("compare_list_exprs: type mismatch") == 0
                 }
             }
         }
@@ -265,7 +252,7 @@ pub fn trans_opt(bcx: @mut Block, o: &Opt) -> opt_result {
     match *o {
         lit(ExprLit(lit_expr)) => {
             let datumblock = expr::trans_to_datum(bcx, lit_expr);
-            return single_result(datumblock.to_result());
+            single_result(datumblock.to_result())
         }
         lit(UnitLikeStructLit(pat_id)) => {
             let struct_ty = ty::node_id_to_type(bcx.tcx(), pat_id);
@@ -732,15 +719,15 @@ pub fn enter_box<'r>(bcx: @mut Block,
 
     let dummy = @ast::pat {id: 0, node: ast::pat_wild, span: dummy_sp()};
     do enter_match(bcx, dm, m, col, val) |p| {
-        match p.node {
-            ast::pat_box(sub) => {
-                Some(~[sub])
+        Some(~[
+            match p.node {
+                ast::pat_box(sub) => sub,
+                _ => {
+                    assert_is_binding_or_wild(bcx, p);
+                    dummy
+                }
             }
-            _ => {
-                assert_is_binding_or_wild(bcx, p);
-                Some(~[dummy])
-            }
-        }
+        ])
     }
 }
 
@@ -759,15 +746,15 @@ pub fn enter_uniq<'r>(bcx: @mut Block,
 
     let dummy = @ast::pat {id: 0, node: ast::pat_wild, span: dummy_sp()};
     do enter_match(bcx, dm, m, col, val) |p| {
-        match p.node {
-            ast::pat_uniq(sub) => {
-                Some(~[sub])
+        Some(~[
+            match p.node {
+                ast::pat_uniq(sub) => sub,
+                _ => {
+                    assert_is_binding_or_wild(bcx, p);
+                    dummy
+                }
             }
-            _ => {
-                assert_is_binding_or_wild(bcx, p);
-                Some(~[dummy])
-            }
-        }
+        ])
     }
 }
 
@@ -786,15 +773,15 @@ pub fn enter_region<'r>(bcx: @mut Block,
 
     let dummy = @ast::pat { id: 0, node: ast::pat_wild, span: dummy_sp() };
     do enter_match(bcx, dm, m, col, val) |p| {
-        match p.node {
-            ast::pat_region(sub) => {
-                Some(~[sub])
+        Some(~[
+            match p.node {
+                ast::pat_region(sub) => sub,
+                _ => {
+                    assert_is_binding_or_wild(bcx, p);
+                    dummy
+                }
             }
-            _ => {
-                assert_is_binding_or_wild(bcx, p);
-                Some(~[dummy])
-            }
-        }
+        ])
     }
 }
 
@@ -803,65 +790,61 @@ pub fn enter_region<'r>(bcx: @mut Block,
 // on a set of enum variants or a literal.
 pub fn get_options(bcx: @mut Block, m: &[Match], col: uint) -> ~[Opt] {
     let ccx = bcx.ccx();
-    fn add_to_set(tcx: ty::ctxt, set: &mut ~[Opt], val: Opt) {
-        if set.iter().any(|l| opt_eq(tcx, l, &val)) {return;}
-        set.push(val);
-    }
 
-    let mut found = ~[];
-    for m.iter().advance |br| {
+    let mut literals = do m.iter().filter_map |br| {
         let cur = br.pats[col];
         match cur.node {
-            ast::pat_lit(l) => {
-                add_to_set(ccx.tcx, &mut found, lit(ExprLit(l)));
-            }
+            ast::pat_lit(l) => Some(lit(ExprLit(l))),
             ast::pat_ident(*) => {
                 // This is one of: an enum variant, a unit-like struct, or a
                 // variable binding.
-                match ccx.tcx.def_map.find(&cur.id) {
-                    Some(&ast::def_variant(*)) => {
-                        add_to_set(ccx.tcx, &mut found,
-                                   variant_opt(bcx, cur.id));
+                do ccx.tcx.def_map.find(&cur.id).chain |&value| {
+                    match value {
+                        ast::def_variant(*) => {
+                            Some(variant_opt(bcx, cur.id))
+                        }
+                        ast::def_struct(*) => {
+                            Some(lit(UnitLikeStructLit(cur.id)))
+                        }
+                        ast::def_static(const_did, false) => {
+                            Some(lit(ConstLit(const_did)))
+                        }
+                        _ => None
                     }
-                    Some(&ast::def_struct(*)) => {
-                        add_to_set(ccx.tcx, &mut found,
-                                   lit(UnitLikeStructLit(cur.id)));
-                    }
-                    Some(&ast::def_static(const_did, false)) => {
-                        add_to_set(ccx.tcx, &mut found,
-                                   lit(ConstLit(const_did)));
-                    }
-                    _ => {}
                 }
             }
             ast::pat_enum(*) | ast::pat_struct(*) => {
                 // This could be one of: a tuple-like enum variant, a
                 // struct-like enum variant, or a struct.
-                match ccx.tcx.def_map.find(&cur.id) {
-                    Some(&ast::def_fn(*)) |
-                    Some(&ast::def_variant(*)) => {
-                        add_to_set(ccx.tcx, &mut found,
-                                   variant_opt(bcx, cur.id));
+                do ccx.tcx.def_map.find(&cur.id).chain |&value| {
+                    match value {
+                        ast::def_fn(*) | ast::def_variant(*) => {
+                            Some(variant_opt(bcx, cur.id))
+                        }
+                        ast::def_static(const_did, false) => {
+                            Some(lit(ConstLit(const_did)))
+                        }
+                        _ => None
                     }
-                    Some(&ast::def_static(const_did, false)) => {
-                        add_to_set(ccx.tcx, &mut found,
-                                   lit(ConstLit(const_did)));
-                    }
-                    _ => {}
                 }
             }
-            ast::pat_range(l1, l2) => {
-                add_to_set(ccx.tcx, &mut found, range(l1, l2));
-            }
+            ast::pat_range(l1, l2) => Some(range(l1, l2)),
             ast::pat_vec(ref before, slice, ref after) => {
                 let opt = match slice {
                     None => vec_len_eq(before.len()),
                     Some(_) => vec_len_ge(before.len() + after.len(),
                                           before.len())
                 };
-                add_to_set(ccx.tcx, &mut found, opt);
+                Some(opt)
             }
-            _ => {}
+            _ => None
+        }
+    };
+
+    let mut found = ~[];
+    for literals.advance |literal| {
+        if !found.iter().any(|l| opt_eq(ccx.tcx, l, &literal)) {
+            found.push(literal)
         }
     }
     return found;
@@ -2049,12 +2032,8 @@ fn bind_irrefutable_pat(bcx: @mut Block,
 
 fn simple_identifier<'a>(pat: &'a ast::pat) -> Option<&'a ast::Path> {
     match pat.node {
-        ast::pat_ident(ast::bind_infer, ref path, None) => {
-            Some(path)
-        }
-        _ => {
-            None
-        }
+        ast::pat_ident(ast::bind_infer, ref path, None) => Some(path),
+        _ => None
     }
 }
 

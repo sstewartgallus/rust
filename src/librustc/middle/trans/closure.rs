@@ -271,21 +271,15 @@ pub fn build_closure(bcx0: @mut Block,
     for cap_vars.iter().advance |cap_var| {
         debug!("Building closure: captured variable %?", *cap_var);
         let datum = expr::trans_local_var(bcx, cap_var.def);
-        match cap_var.mode {
+        let env_action = match cap_var.mode {
             moves::CapRef => {
                 assert_eq!(sigil, ast::BorrowedSigil);
-                env_vals.push(EnvValue {action: EnvRef,
-                                        datum: datum});
+                EnvRef
             }
-            moves::CapCopy => {
-                env_vals.push(EnvValue {action: EnvCopy,
-                                        datum: datum});
-            }
-            moves::CapMove => {
-                env_vals.push(EnvValue {action: EnvMove,
-                                        datum: datum});
-            }
-        }
+            moves::CapCopy => EnvCopy,
+            moves::CapMove => EnvMove
+        };
+        env_vals.push(EnvValue { action: env_action, datum: datum });
     }
 
     // If this is a `for` loop body, add two special environment
@@ -485,17 +479,13 @@ pub fn make_opaque_cbox_take_glue(
     // Easy cases:
     let _icx = push_ctxt("closure::make_opaque_cbox_take_glue");
     match sigil {
-        ast::BorrowedSigil => {
-            return bcx;
-        }
+        ast::BorrowedSigil => {},
         ast::ManagedSigil => {
             glue::incr_refcnt_of_boxed(bcx, Load(bcx, cboxptr));
-            return bcx;
         }
-        ast::OwnedSigil => {
-            fail!("unique closures are not copyable")
-        }
+        ast::OwnedSigil => fail!("unique closures are not copyable")
     }
+    bcx
 }
 
 pub fn make_opaque_cbox_drop_glue(

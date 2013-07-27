@@ -39,9 +39,9 @@ trait EffectfulSubst {
 impl Subst for ty::t {
     fn subst(&self, tcx: ty::ctxt, substs: &ty::substs) -> ty::t {
         if ty::substs_is_noop(substs) {
-            return *self;
+            *self
         } else {
-            return self.effectfulSubst(tcx, substs);
+            self.effectfulSubst(tcx, substs)
         }
     }
 }

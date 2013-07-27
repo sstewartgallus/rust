@@ -123,21 +123,21 @@ pub fn check_expr(sess: Session,
                              items without type parameters");
             }
             match def_map.find(&e.id) {
-              Some(&def_static(*)) |
-              Some(&def_fn(_, _)) |
-              Some(&def_variant(_, _)) |
-              Some(&def_struct(_)) => { }
+                Some(&value) => match value {
+                    def_static(*) |
+                        def_fn(_, _) |
+                        def_variant(_, _) |
+                        def_struct(_) => { }
 
-              Some(&def) => {
-                debug!("(checking const) found bad def: %?", def);
-                sess.span_err(
-                    e.span,
-                    "paths in constants may only refer to \
-                     constants or functions");
-              }
-              None => {
-                sess.span_bug(e.span, "unbound path in const?!");
-              }
+                    def => {
+                        debug!("(checking const) found bad def: %?", def);
+                        sess.span_err(
+                            e.span,
+                            "paths in constants may only refer to \
+                             constants or functions");
+                    }
+                },
+                None => sess.span_bug(e.span, "unbound path in const?!")
             }
           }
           expr_call(callee, _, NoSugar) => {

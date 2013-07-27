@@ -185,15 +185,16 @@ pub fn lookup_variant_by_id(tcx: ty::ctxt,
     }
 
     if ast_util::is_local(enum_def) {
-        match tcx.items.find(&enum_def.node) {
-            None => None,
-            Some(&ast_map::node_item(it, _)) => match it.node {
-                item_enum(ast::enum_def { variants: ref variants }, _) => {
-                    variant_expr(*variants, variant_def.node)
-                }
+        do tcx.items.find(&enum_def.node).chain |value| {
+            match value {
+                &ast_map::node_item(it, _) => match it.node {
+                    item_enum(ast::enum_def { variants: ref variants }, _) => {
+                        variant_expr(*variants, variant_def.node)
+                    }
+                    _ => None
+                },
                 _ => None
-            },
-            Some(_) => None
+            }
         }
     } else {
         let maps = astencode::Maps {
@@ -224,13 +225,14 @@ pub fn lookup_const_by_id(tcx: ty::ctxt,
                           def_id: ast::def_id)
                        -> Option<@expr> {
     if ast_util::is_local(def_id) {
-        match tcx.items.find(&def_id.node) {
-            None => None,
-            Some(&ast_map::node_item(it, _)) => match it.node {
-                item_static(_, ast::m_imm, const_expr) => Some(const_expr),
+        do tcx.items.find(&def_id.node).chain |value| {
+            match value {
+                &ast_map::node_item(it, _) => match it.node {
+                    item_static(_, ast::m_imm, const_expr) => Some(const_expr),
+                    _ => None
+                },
                 _ => None
-            },
-            Some(_) => None
+            }
         }
     } else {
         let maps = astencode::Maps {

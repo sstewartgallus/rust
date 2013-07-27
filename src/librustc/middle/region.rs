@@ -127,14 +127,19 @@ impl RegionMaps {
         self.cleanup_scopes.contains(&scope_id)
     }
 
-    pub fn cleanup_scope(&self, expr_id: ast::node_id) -> ast::node_id {
+    pub fn cleanup_scope(&self, mut id: ast::node_id) -> ast::node_id {
         //! Returns the scope when temps in expr will be cleaned up
 
-        let mut id = self.encl_scope(expr_id);
-        while !self.cleanup_scopes.contains(&id) {
+        // Loop over the scopes
+        loop {
+            // Travelling down the hierarchy of scopes
             id = self.encl_scope(id);
+
+            // And if this id is the cleanup scope return it
+            if self.cleanup_scopes.contains(&id) {
+                return id
+            }
         }
-        return id;
     }
 
     pub fn encl_region(&self, id: ast::node_id) -> ty::Region {

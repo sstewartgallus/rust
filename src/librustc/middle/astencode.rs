@@ -114,9 +114,7 @@ pub fn decode_inlined_item(cdata: @cstore::crate_metadata,
         tcx: tcx,
         maps: maps
     };
-    match par_doc.opt_child(c::tag_ast) {
-      None => None,
-      Some(ast_doc) => {
+    do par_doc.opt_child(c::tag_ast).map |&ast_doc| {
         debug!("> Decoding inlined fn: %s::?",
                ast_map::path_to_str(path, token::get_ident_interner()));
         let mut ast_dsr = reader::Decoder(ast_doc);
@@ -139,14 +137,13 @@ pub fn decode_inlined_item(cdata: @cstore::crate_metadata,
                                   &ii);
         decode_side_tables(xcx, ast_doc);
         match ii {
-          ast::ii_item(i) => {
-            debug!(">>> DECODED ITEM >>>\n%s\n<<< DECODED ITEM <<<",
-                   syntax::print::pprust::item_to_str(i, tcx.sess.intr()));
-          }
-          _ => { }
+            ast::ii_item(i) => {
+                debug!(">>> DECODED ITEM >>>\n%s\n<<< DECODED ITEM <<<",
+                       syntax::print::pprust::item_to_str(i, tcx.sess.intr()));
+            }
+            _ => { }
         }
-        Some(ii)
-      }
+        ii
     }
 }
 
