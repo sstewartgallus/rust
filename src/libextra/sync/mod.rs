@@ -15,66 +15,20 @@
  * in std.
  */
 
+use self::wait_queue::WaitQueue;
 
-use std::borrow;
-use std::comm;
-use std::comm::SendDeferred;
-use std::task;
-use std::unstable::sync::{Exclusive, UnsafeAtomicRcBox};
-use std::unstable::atomics;
+use std::unstable::sync::{UnsafeAtomicRcBox, Exclusive};
 use std::unstable::finally::Finally;
-use std::util;
+use std::unstable::atomics;
+use std::task;
 use std::util::NonCopyable;
+use std::util;
+use std::borrow;
 
-/****************************************************************************
- * Internals
- ****************************************************************************/
+mod wait_queue;
 
-// Each waiting task receives on one of these.
-#[doc(hidden)]
-type WaitEnd = comm::PortOne<()>;
-#[doc(hidden)]
-type SignalEnd = comm::ChanOne<()>;
-// A doubly-ended queue of waiting tasks.
-#[doc(hidden)]
-struct WaitQueue { head: comm::Port<SignalEnd>,
-                   tail: comm::Chan<SignalEnd> }
 
-impl WaitQueue {
-    fn new() -> WaitQueue {
-        let (block_head, block_tail) = comm::stream();
-        WaitQueue { head: block_head, tail: block_tail }
-    }
-
-    // Signals one live task from the queue.
-    fn signal(&self) -> bool {
-        // The peek is mandatory to make sure recv doesn't block.
-        if self.head.peek() {
-            // Pop and send a wakeup signal. If the waiter was killed, its port
-            // will have closed. Keep trying until we get a live task.
-            if self.head.recv().try_send_deferred(()) {
-                true
-            } else {
-                self.signal()
-            }
-        } else {
-            false
-        }
-    }
-
-    fn broadcast(&self) -> uint {
-        let mut count = 0;
-        while self.head.peek() {
-            if self.head.recv().try_send_deferred(()) {
-                count += 1;
-            }
-        }
-        count
-    }
-}
-
-// The building-block used to make semaphores, mutexes, and rwlocks.
-#[doc(hidden)]
+/// The building-block used to make semaphores, mutexes, and rwlocks.
 struct SemInner<Q> {
     count: int,
     waiters:   WaitQueue,
@@ -83,40 +37,34 @@ struct SemInner<Q> {
     blocked:   Q
 }
 
-#[doc(hidden)]
 struct Sem<Q>(Exclusive<SemInner<Q>>);
 
-#[doc(hidden)]
 impl<Q:Send> Sem<Q> {
     fn new(count: int, q: Q) -> Sem<Q> {
         Sem(Exclusive::new(SemInner {
             count: count, waiters: WaitQueue::new(), blocked: q }))
     }
 
-    pub fn acquire(&self) {
+    fn acquire(&self) {
         unsafe {
             let mut waiter_nobe = None;
             do (**self).with |state| {
                 state.count -= 1;
                 if state.count < 0 {
-                    // Create waiter nobe.
-                    let (WaitEnd, SignalEnd) = comm::oneshot();
-                    // Tell outer scope we need to block.
-                    waiter_nobe = Some(WaitEnd);
-                    // Enqueue ourself.
-                    state.waiters.tail.send_deferred(SignalEnd);
+                    // Enqueue ourself, and tell outer scope we need to block.
+                    waiter_nobe = Some(state.waiters.queue_wait_event());
                 }
             }
             // Uncomment if you wish to test for sem races. Not valgrind-friendly.
             /* do 1000.times { task::yield(); } */
             // Need to wait outside the exclusive.
             if waiter_nobe.is_some() {
-                let _ = comm::recv_one(waiter_nobe.unwrap());
+                waiter_nobe.unwrap().wait();
             }
         }
     }
 
-    pub fn release(&self) {
+    fn release(&self) {
         unsafe {
             do (**self).with |state| {
                 state.count += 1;
@@ -127,7 +75,7 @@ impl<Q:Send> Sem<Q> {
         }
     }
 
-    pub fn access<U>(&self, blk: &fn() -> U) -> U {
+    fn access<U>(&self, blk: &fn() -> U) -> U {
         do task::unkillable {
             do (|| {
                 self.acquire();
@@ -141,7 +89,6 @@ impl<Q:Send> Sem<Q> {
     }
 }
 
-#[doc(hidden)]
 impl Sem<~[WaitQueue]> {
     fn new_and_signal(count: int, num_condvars: uint)
         -> Sem<~[WaitQueue]> {
@@ -156,7 +103,7 @@ impl Sem<~[WaitQueue]> {
 // FIXME(#3598): Want to use an Option down below, but we need a custom enum
 // that's not polymorphic to get around the fact that lifetimes are invariant
 // inside of type parameters.
-enum ReacquireOrderLock<'self> {
+pub enum ReacquireOrderLock<'self> {
     Nothing, // c.c
     Just(&'self Semaphore),
 }
@@ -200,14 +147,10 @@ impl<'self> Condvar<'self> {
      * wait() is equivalent to wait_on(0).
      */
     pub fn wait_on(&self, condvar_id: uint) {
-        // Create waiter nobe.
-        let (WaitEnd, SignalEnd) = comm::oneshot();
-        let mut WaitEnd   = Some(WaitEnd);
-        let mut SignalEnd = Some(SignalEnd);
         let mut out_of_bounds = None;
         do task::unkillable {
             // Release lock, 'atomically' enqueuing ourselves in so doing.
-            unsafe {
+            let mut maybe_waiter = unsafe {
                 do (**self.sem).with |state| {
                     if condvar_id < state.blocked.len() {
                         // Drop the lock.
@@ -216,13 +159,13 @@ impl<'self> Condvar<'self> {
                             state.waiters.signal();
                         }
                         // Enqueue ourself to be woken up by a signaller.
-                        let SignalEnd = SignalEnd.take_unwrap();
-                        state.blocked[condvar_id].tail.send_deferred(SignalEnd);
+                        Some(state.blocked[condvar_id].queue_wait_event())
                     } else {
                         out_of_bounds = Some(state.blocked.len());
+                        None
                     }
                 }
-            }
+            };
 
             // If yield checks start getting inserted anywhere, we can be
             // killed before or after enqueueing. Deciding whether to
@@ -235,7 +178,7 @@ impl<'self> Condvar<'self> {
                 do (|| {
                     unsafe {
                         do task::rekillable {
-                            let _ = comm::recv_one(WaitEnd.take_unwrap());
+                            maybe_waiter.take_unwrap().wait();
                         }
                     }
                 }).finally {
@@ -333,7 +276,7 @@ impl Sem<~[WaitQueue]> {
  ****************************************************************************/
 
 /// A counting, blocking, bounded-waiting semaphore.
-struct Semaphore { priv sem: Sem<()> }
+pub struct Semaphore { priv sem: Sem<()> }
 
 
 impl Clone for Semaphore {
@@ -365,9 +308,6 @@ impl Semaphore {
     pub fn access<U>(&self, blk: &fn() -> U) -> U { (&self.sem).access(blk) }
 }
 
-/****************************************************************************
- * Mutexes
- ****************************************************************************/
 
 /**
  * A blocking, bounded-waiting, mutual exclusion lock with an associated
@@ -694,20 +634,15 @@ impl<'self> RWLockReadMode<'self> {
     pub fn read<U>(&self, blk: &fn() -> U) -> U { blk() }
 }
 
-/****************************************************************************
- * Tests
- ****************************************************************************/
-
 #[cfg(test)]
 mod tests {
+    use super::*;
 
-    use sync::*;
-
-    use std::cast;
     use std::cell::Cell;
     use std::comm;
-    use std::result;
     use std::task;
+    use std::cast;
+    use std::result;
 
     /************************************************************************
      * Semaphore tests
@@ -804,6 +739,7 @@ mod tests {
             let _ = p.recv(); // wait for child to be done
         }
     }
+
     /************************************************************************
      * Mutex tests
      ************************************************************************/
