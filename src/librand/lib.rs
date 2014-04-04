@@ -914,7 +914,7 @@ mod bench {
 
     #[bench]
     fn rand_task_rng(bh: &mut BenchHarness) {
-        let rng = task_rng();
+        let mut rng = task_rng();
         bh.iter(|| {
             for _ in range(0, RAND_BENCH_N) {
                 rng.gen::<uint>();
